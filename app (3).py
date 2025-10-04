@@ -13,7 +13,7 @@ from collections import Counter
 # -----------------------------
 # 1. Setup paths & unzip data
 # -----------------------------
-DATA_PATH = "SB_publication_PMC.csv"      # CSV data file in GitHub
+DATA_PATH = "Search Engine Data.csv"      # CSV data file in GitHub
 PAPERS_PATH = "papers.pkl"                # Summaries + graph paths
 VECTOR_STORE_PATH = "vector_store_output" # Folder for FAISS index
 GRAPH_PATH = "graph_images"               # Folder for graphs
