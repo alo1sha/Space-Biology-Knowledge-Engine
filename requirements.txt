@@ -2,7 +2,12 @@ streamlit
 pandas
 langchain
 langchain-community
-faiss-cpu
-sentence-transformers
 transformers
 torch
+sentence-transformers
+faiss-cpu
+numpy
+networkx
+matplotlib
+
+
