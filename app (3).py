@@ -8,10 +8,10 @@ import pickle
 import os
 import re
 from collections import Counter
-from langchain_community.vectorstores import FAISS
-from langchain.embeddings import SentenceTransformerEmbeddings
+from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_community.llms import HuggingFacePipeline
 from langchain.chains import RetrievalQA
-from langchain.llms import HuggingFacePipeline
+from langchain_community.vectorstores import FAISS
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 
 # -----------------------------
