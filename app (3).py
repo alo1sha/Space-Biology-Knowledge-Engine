@@ -1,5 +1,5 @@
 # ========================================
-# 🪐 Streamlit App: Space Biology Knowledge Engine (Final)
+# 🪐 Streamlit App: Space Biology Knowledge Engine (Persistent State)
 # ========================================
 
 import streamlit as st
@@ -11,7 +11,7 @@ import zipfile
 from collections import Counter
 
 # -----------------------------
-# 0. Extract graph images (if zipped)
+# 0. Extract graph images if zipped
 # -----------------------------
 if os.path.exists("graph_images_zip.zip"):
     with zipfile.ZipFile("graph_images_zip.zip", 'r') as zip_ref:
@@ -20,17 +20,15 @@ if os.path.exists("graph_images_zip.zip"):
 # -----------------------------
 # 1. Load data
 # -----------------------------
-DATA_PATH = "Search Engine Data.csv"      # main CSV
-PAPERS_PATH = "papers.pkl"                # summaries + graphs
+DATA_PATH = "Search Engine Data.csv"
+PAPERS_PATH = "papers.pkl"
 
-# Load CSV
 if os.path.exists(DATA_PATH):
     df = pd.read_csv(DATA_PATH)
 else:
     st.error("❌ CSV file not found. Please ensure `Search Engine Data.csv` is uploaded.")
     st.stop()
 
-# Load papers dictionary (summaries + graphs)
 if os.path.exists(PAPERS_PATH):
     with open(PAPERS_PATH, "rb") as f:
         papers = pickle.load(f)
@@ -56,14 +54,23 @@ st.title("🪐 Space Biology Knowledge Engine")
 st.markdown("Explore research papers by your **interest**, read summaries, ask questions, and visualize entity graphs.")
 
 # -----------------------------
-# 4. Interest selection
+# 4. Initialize session state
 # -----------------------------
-selected_interest = st.selectbox("🎯 Choose your research interest:", auto_interests)
+if "search_done" not in st.session_state:
+    st.session_state.search_done = False
+if "results" not in st.session_state:
+    st.session_state.results = []
+if "selected_interest" not in st.session_state:
+    st.session_state.selected_interest = None
 
 # -----------------------------
-# 5. Search Papers
+# 5. Select Interest
 # -----------------------------
+selected_interest = st.selectbox("🎯 Choose your research interest:", auto_interests, index=0)
+
 if st.button("🚀 Search Papers"):
+    st.session_state.selected_interest = selected_interest
+
     from langchain_community.vectorstores import FAISS
     from langchain_community.embeddings import SentenceTransformerEmbeddings
     from langchain.chains import RetrievalQA
@@ -74,18 +81,14 @@ if st.button("🚀 Search Papers"):
     embedding_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
     faiss_index = FAISS.load_local(OUTPUT_DIR, embedding_model, allow_dangerous_deserialization=True)
 
-    # -----------------------------
-    # Helper Functions
-    # -----------------------------
     def paper_search(keyword, top_k=5):
         results = faiss_index.as_retriever(search_kwargs={"k": top_k * 3}).get_relevant_documents(keyword)
-        found = []
-        seen_sources = set()
+        found, seen = [], set()
         for doc in results:
             source = doc.metadata.get("source", "Unknown")
-            if source in seen_sources:
+            if source in seen:
                 continue
-            seen_sources.add(source)
+            seen.add(source)
             found.append({
                 "title": doc.metadata.get("title", "Untitled"),
                 "source": source,
@@ -95,81 +98,81 @@ if st.button("🚀 Search Papers"):
                 break
         return found
 
-    def show_summary(paper_id_or_url, papers_dict):
-        if paper_id_or_url in papers_dict:
-            return papers_dict[paper_id_or_url]["summary"]
-        return f"No summary available for {paper_id_or_url}"
+    st.session_state.results = paper_search(selected_interest, top_k=5)
+    st.session_state.search_done = True
 
-    def show_graph(paper_id_or_url, papers_dict):
-        if paper_id_or_url not in papers_dict:
-            return None
+# -----------------------------
+# 6. Display Results (Persistent)
+# -----------------------------
+if st.session_state.search_done and st.session_state.results:
+    results = st.session_state.results
+    st.success(f"✅ Found {len(results)} related papers for '{st.session_state.selected_interest}'.")
 
-        graph_path = papers_dict[paper_id_or_url].get("graph_image")
-        if graph_path and not os.path.exists(graph_path):
-            filename = os.path.basename(graph_path)
-            alt_path = os.path.join("graph_images", filename)
-            if os.path.exists(alt_path):
-                graph_path = alt_path
-            else:
+    for i, paper in enumerate(results):
+        st.markdown(f"### 📄 {i+1}. {paper['title']}")
+        st.write(f"🔗 [Open Paper Source]({paper['source']})")
+        st.caption(paper['preview'])
+
+        col1, col2, col3 = st.columns(3)
+
+        def show_summary(paper_id_or_url):
+            if paper_id_or_url in papers:
+                return papers[paper_id_or_url]["summary"]
+            return f"No summary available for {paper_id_or_url}"
+
+        def show_graph(paper_id_or_url):
+            if paper_id_or_url not in papers:
                 return None
-        return graph_path
+            graph_path = papers[paper_id_or_url].get("graph_image")
+            if graph_path and not os.path.exists(graph_path):
+                filename = os.path.basename(graph_path)
+                alt_path = os.path.join("graph_images", filename)
+                if os.path.exists(alt_path):
+                    graph_path = alt_path
+                else:
+                    return None
+            return graph_path
 
-    def answer_question(paper_id_or_url, question, papers_dict):
-        if paper_id_or_url not in papers_dict:
-            return f"No data found for {paper_id_or_url}"
+        def answer_question(paper_id_or_url, question):
+            if paper_id_or_url not in papers:
+                return f"No data found for {paper_id_or_url}"
+            model_name = "google/flan-t5-base"
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            qa_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
+            llm = HuggingFacePipeline(pipeline=qa_pipeline)
+            from langchain_community.vectorstores import FAISS
+            from langchain_community.embeddings import SentenceTransformerEmbeddings
+            from langchain.chains import RetrievalQA
+            OUTPUT_DIR = "vector_store_output"
+            embedding_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+            faiss_index = FAISS.load_local(OUTPUT_DIR, embedding_model, allow_dangerous_deserialization=True)
+            QA_chain = RetrievalQA.from_chain_type(
+                llm=llm, chain_type="stuff",
+                retriever=faiss_index.as_retriever(search_kwargs={"k": 3})
+            )
+            title = papers[paper_id_or_url]["title"]
+            query = f"Based on the paper titled '{title}', answer: {question}"
+            return QA_chain.run(query)
 
-        model_name = "google/flan-t5-base"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        qa_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
-        llm = HuggingFacePipeline(pipeline=qa_pipeline)
+        # 📝 Summary
+        with col1:
+            if st.button(f"📝 Summary #{i+1}", key=f"sum_{i}"):
+                st.text_area("Summary", show_summary(paper["source"]), height=250, key=f"sum_txt_{i}")
 
-        QA_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=faiss_index.as_retriever(search_kwargs={"k": 3})
-        )
+        # ❓ Question
+        with col2:
+            q = st.text_input(f"❓ Ask about paper #{i+1}", key=f"q_{i}")
+            if q:
+                st.info("Answering... please wait ⏳")
+                ans = answer_question(paper["source"], q)
+                st.success(ans)
 
-        title = papers_dict[paper_id_or_url]["title"]
-        query = f"Based on the paper titled '{title}', answer: {question}"
-        return QA_chain.run(query)
-
-    # -----------------------------
-    # Execute search
-    # -----------------------------
-    results = paper_search(selected_interest, top_k=5)
-
-    if not results:
-        st.warning("No matching papers found for this interest.")
-    else:
-        st.success(f"✅ Found {len(results)} related papers.")
-        for i, paper in enumerate(results):
-            st.markdown(f"### 📄 {i+1}. {paper['title']}")
-            st.write(f"🔗 [Open Paper Source]({paper['source']})")
-            st.caption(paper['preview'])
-
-            # UI columns
-            col1, col2, col3 = st.columns(3)
-
-            # 📝 Summary
-            with col1:
-                if st.button(f"📝 Summary #{i+1}"):
-                    summary = show_summary(paper["source"], papers)
-                    st.text_area("Summary", summary, height=250)
-
-            # ❓ Question
-            with col2:
-                user_q = st.text_input(f"❓ Ask about paper #{i+1}", key=f"q{i}")
-                if user_q:
-                    st.info("Answering... please wait ⏳")
-                    answer = answer_question(paper["source"], user_q, papers)
-                    st.success(answer)
-
-            # 📊 Graph
-            with col3:
-                if st.button(f"📊 Graph #{i+1}"):
-                    graph_path = show_graph(paper["source"], papers)
-                    if graph_path and os.path.exists(graph_path):
-                        st.image(graph_path, caption="Entity Graph", use_container_width=True)
-                    else:
-                        st.warning("No graph available for this paper.")
+        # 📊 Graph
+        with col3:
+            if st.button(f"📊 Graph #{i+1}", key=f"graph_{i}"):
+                gpath = show_graph(paper["source"])
+                if gpath and os.path.exists(gpath):
+                    st.image(gpath, caption="Entity Graph", use_container_width=True)
+                else:
+                    st.warning("No graph available for this paper.")
