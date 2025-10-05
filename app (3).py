@@ -134,26 +134,40 @@ if st.session_state.search_done and st.session_state.results:
             return graph_path
 
         def answer_question(paper_id_or_url, question):
+            """Answer a user question about a specific paper."""
             if paper_id_or_url not in papers:
                 return f"No data found for {paper_id_or_url}"
-            model_name = "google/flan-t5-base"
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-            qa_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
-            llm = HuggingFacePipeline(pipeline=qa_pipeline)
+
+            from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+            from langchain_community.llms import HuggingFacePipeline
             from langchain_community.vectorstores import FAISS
             from langchain_community.embeddings import SentenceTransformerEmbeddings
             from langchain.chains import RetrievalQA
+
+            model_name = "google/flan-t5-base"
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+            qa_pipeline = pipeline("text2text-generation", model=model, tokenizer=tokenizer, device=-1)
+            llm = HuggingFacePipeline(pipeline=qa_pipeline)
+
             OUTPUT_DIR = "vector_store_output"
             embedding_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
             faiss_index = FAISS.load_local(OUTPUT_DIR, embedding_model, allow_dangerous_deserialization=True)
+
             QA_chain = RetrievalQA.from_chain_type(
-                llm=llm, chain_type="stuff",
+                llm=llm,
+                chain_type="stuff",
                 retriever=faiss_index.as_retriever(search_kwargs={"k": 3})
             )
+
             title = papers[paper_id_or_url]["title"]
-            query = f"Based on the paper titled '{title}', answer: {question}"
-            return QA_chain.run(query)
+            query = f"Based on the paper titled '{title}', answer this question: {question}"
+
+            try:
+                return QA_chain.run(query)
+            except Exception as e:
+                return f"⚠️ Error while generating answer: {e}"
 
         # 📝 Summary
         with col1:
