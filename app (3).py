@@ -16,7 +16,7 @@ from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 
 import zipfile
 
-if os.path.exists("graph_images.zip"):
+if os.path.exists("graph_images_zip.zip"):
     with zipfile.ZipFile("graph_images.zip", 'r') as zip_ref:
         zip_ref.extractall("graph_images")
 
